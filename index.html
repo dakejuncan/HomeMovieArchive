@@ -2,122 +2,114 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Home Movie Archive</title>
+  <title>Video Search</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
+      text-align: center;
+      font-size: 20px; /* bigger font for phones */
+    }
+    h1 {
+      font-size: 28px;
+      margin-bottom: 20px;
+    }
+    .filters {
+      display: flex;
+      flex-direction: column; /* stack vertically */
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 20px;
     }
     select, button {
-      margin: 5px;
-      padding: 5px;
+      padding: 8px 12px;
+      font-size: 18px; /* larger for touch */
+      width: 250px;
     }
     #results {
       margin-top: 20px;
       font-weight: bold;
     }
-    ul {
-      margin-top: 5px;
-    }
   </style>
 </head>
 <body>
-  <h2>Home Movie Archive</h2>
-  <p>Select filters to find matching clips:</p>
-
-  <label for="people">Person:</label>
-  <select id="people"><option value="">--Any--</option></select>
-
-  <label for="places">Place:</label>
-  <select id="places"><option value="">--Any--</option></select>
-
-  <label for="events">Event:</label>
-  <select id="events"><option value="">--Any--</option></select>
-
-  <label for="dates">Date:</label>
-  <select id="dates"><option value="">--Any--</option></select>
-
-  <div>
-    <button onclick="search()">Search</button>
+  <h1>Search Videos</h1>
+  <div class="filters">
+    <select id="people"><option value="">--Any--</option></select>
+    <select id="places"><option value="">--Any--</option></select>
+    <select id="events"><option value="">--Any--</option></select>
+    <select id="dates"><option value="">--Any--</option></select>
   </div>
+  <button onclick="filterResults()">Search</button>
+  <button onclick="resetFilters()">Reset</button>
 
   <div id="results"></div>
 
   <script>
-    let movies = {};
-    let people = [];
-    let places = [];
-    let events = [];
-    let dates = [];
+    const datasets = ["people.csv", "places.csv", "events.csv", "dates.csv"];
+    const data = {};
 
-    async function loadCSV(url) {
-      // Force fresh copy from GitHub (skip cache)
-      const response = await fetch(url + "?t=" + new Date().getTime());
-      const text = await response.text();
-      return text.trim().split("\n").slice(1).map(line => line.split(","));
+    async function loadCSVs() {
+      for (const file of datasets) {
+        const response = await fetch(file);
+        const text = await response.text();
+        const rows = text.trim().split("\n").slice(1);
+        data[file] = rows.map(row => {
+          const [clip, value] = row.split(",");
+          return { clip: clip.trim(), value: value.trim() };
+        });
+      }
+      populateDropdowns();
     }
 
-    async function loadData() {
-      const moviesData = await loadCSV("Movies.csv");
-      movies = {};
-      moviesData.forEach(row => {
-        movies[row[0]] = row[1];
-      });
-
-      people = await loadCSV("People.csv");
-      places = await loadCSV("Places.csv");
-      events = await loadCSV("Events.csv");
-      dates = await loadCSV("Dates.csv");
-
-      populateDropdown("people", people.map(r => r[1]));
-      populateDropdown("places", places.map(r => r[1]));
-      populateDropdown("events", events.map(r => r[1]));
-      populateDropdown("dates", dates.map(r => r[1]));
+    function populateDropdowns() {
+      for (const [file, entries] of Object.entries(data)) {
+        const id = file.split(".")[0];
+        const select = document.getElementById(id);
+        const unique = [...new Set(entries.map(e => e.value))].sort();
+        unique.forEach(v => {
+          const option = document.createElement("option");
+          option.value = v;
+          option.textContent = v;
+          select.appendChild(option);
+        });
+      }
     }
 
-    function populateDropdown(id, values) {
-      const unique = [...new Set(values)];
-      const select = document.getElementById(id);
-      select.innerHTML = "<option value=''>--Any--</option>";
-      unique.forEach(v => {
-        const option = document.createElement("option");
-        option.value = v;
-        option.textContent = v;
-        select.appendChild(option);
-      });
-    }
-
-    function search() {
-      const selectedPerson = document.getElementById("people").value;
-      const selectedPlace = document.getElementById("places").value;
-      const selectedEvent = document.getElementById("events").value;
-      const selectedDate = document.getElementById("dates").value;
-
-      let results = Object.keys(movies);
-
-      if (selectedPerson) {
-        results = results.filter(r => people.some(p => p[0] === r && p[1] === selectedPerson));
+    function filterResults() {
+      const filters = {};
+      for (const file of datasets) {
+        const id = file.split(".")[0];
+        filters[id] = document.getElementById(id).value;
       }
-      if (selectedPlace) {
-        results = results.filter(r => places.some(p => p[0] === r && p[1] === selectedPlace));
-      }
-      if (selectedEvent) {
-        results = results.filter(r => events.some(p => p[0] === r && p[1] === selectedEvent));
-      }
-      if (selectedDate) {
-        results = results.filter(r => dates.some(p => p[0] === r && p[1] === selectedDate));
+
+      let results = null;
+      for (const [file, entries] of Object.entries(data)) {
+        if (filters[file.split(".")[0]]) {
+          const filtered = entries
+            .filter(e => e.value === filters[file.split(".")[0]])
+            .map(e => e.clip);
+          results = results ? results.filter(r => filtered.includes(r)) : filtered;
+        }
       }
 
       const resultsDiv = document.getElementById("results");
-      if (results.length > 0) {
-        resultsDiv.innerHTML = "Clips matching your selection:<ul>" + results.map(r => `<li>${r}</li>`).join("") + "</ul>";
+      if (results && results.length > 0) {
+        resultsDiv.innerHTML = `Matching video numbers:<br>${results.join("<br>")}`;
       } else {
-        resultsDiv.textContent = "No clips found for that selection.";
+        resultsDiv.textContent = "No matches found.";
       }
     }
 
-    // Always load fresh data on page load
-    loadData();
+    function resetFilters() {
+      datasets.forEach(file => {
+        const id = file.split(".")[0];
+        document.getElementById(id).selectedIndex = 0;
+      });
+      document.getElementById("results").textContent = "";
+    }
+
+    loadCSVs();
   </script>
 </body>
 </html>
