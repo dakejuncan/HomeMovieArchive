@@ -1,115 +1,271 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Video Search</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      text-align: center;
-      font-size: 20px; /* bigger font for phones */
-    }
-    h1 {
-      font-size: 28px;
-      margin-bottom: 20px;
-    }
-    .filters {
-      display: flex;
-      flex-direction: column; /* stack vertically */
-      align-items: center;
-      gap: 15px;
-      margin-bottom: 20px;
-    }
-    select, button {
-      padding: 8px 12px;
-      font-size: 18px; /* larger for touch */
-      width: 250px;
-    }
-    #results {
-      margin-top: 20px;
-      font-weight: bold;
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Home Movie Archive</title>
+<style>
+  :root { --base-font: 20px; --control-width: 92%; --max-width: 420px; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: var(--base-font);
+    margin: 18px;
+    display:flex;
+    justify-content:center;
+  }
+  .container {
+    width:100%;
+    max-width: var(--max-width);
+  }
+  h1 { font-size: 1.4em; margin-bottom: 8px; text-align:center; }
+  p.sub { margin-top:0; margin-bottom:14px; color:#333; }
+  .field { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-bottom:12px; }
+  label { font-weight:600; font-size:0.95em; }
+  select {
+    width: var(--control-width);
+    padding:10px;
+    font-size:1em;
+    border-radius:6px;
+  }
+  .buttons { display:flex; gap:12px; justify-content:center; margin-top:8px; flex-wrap:wrap; }
+  button {
+    padding:10px 14px;
+    font-size:1em;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  #status { text-align:center; margin-top:10px; color:#444; }
+  #results { margin-top:18px; font-weight:700; text-align:left; word-break:break-word; }
+  ul.results-list { margin-top:8px; padding-left:18px; font-weight:600; }
+  @media (min-width:700px){
+    .container { margin-top:8px; }
+  }
+</style>
 </head>
 <body>
-  <h1>Search Videos</h1>
-  <div class="filters">
-    <select id="people"><option value="">--Any--</option></select>
-    <select id="places"><option value="">--Any--</option></select>
-    <select id="events"><option value="">--Any--</option></select>
-    <select id="dates"><option value="">--Any--</option></select>
+  <div class="container">
+    <h1>Home Movie Archive</h1>
+    <p class="sub">Select filters and press <strong>Search</strong>. Use <strong>Reset</strong> to clear.</p>
+
+    <div class="field">
+      <label for="people">Person</label>
+      <select id="people"><option value="">--Any--</option></select>
+    </div>
+
+    <div class="field">
+      <label for="places">Place</label>
+      <select id="places"><option value="">--Any--</option></select>
+    </div>
+
+    <div class="field">
+      <label for="events">Event</label>
+      <select id="events"><option value="">--Any--</option></select>
+    </div>
+
+    <div class="field">
+      <label for="dates">Date</label>
+      <select id="dates"><option value="">--Any--</option></select>
+    </div>
+
+    <div class="buttons">
+      <button id="searchBtn">Search</button>
+      <button id="resetBtn">Reset</button>
+      <button id="reloadBtn">Reload Data</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="results"></div>
   </div>
-  <button onclick="filterResults()">Search</button>
-  <button onclick="resetFilters()">Reset</button>
 
-  <div id="results"></div>
-
+  <!-- PapaParse for robust CSV parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script>
-    const datasets = ["people.csv", "places.csv", "events.csv", "dates.csv"];
-    const data = {};
+  // Configuration: filenames and expected columns
+  const CONFIG = {
+    movies: { file: "Movies.csv", key: "Clip Number", value: "Filename" },
+    people: { file: "People.csv", key: "Clip Number", value: "Name" },
+    places: { file: "Places.csv", key: "Clip Number", value: "Place" },
+    events: { file: "Events.csv", key: "Clip Number", value: "Event" },
+    dates:  { file: "Dates.csv",  key: "Clip Number", value: "Date" }
+  };
 
-    async function loadCSVs() {
-      for (const file of datasets) {
-        const response = await fetch(file);
-        const text = await response.text();
-        const rows = text.trim().split("\n").slice(1);
-        data[file] = rows.map(row => {
-          const [clip, value] = row.split(",");
-          return { clip: clip.trim(), value: value.trim() };
-        });
-      }
-      populateDropdowns();
-    }
+  // in-memory structures
+  let moviesMap = {};     // normalized -> originalClip
+  let moviesAll = [];     // array of normalized clip ids
+  let tables = { people: [], places: [], events: [], dates: [] }; // entries: {clip: normalized, value: string}
 
-    function populateDropdowns() {
-      for (const [file, entries] of Object.entries(data)) {
-        const id = file.split(".")[0];
-        const select = document.getElementById(id);
-        const unique = [...new Set(entries.map(e => e.value))].sort();
-        unique.forEach(v => {
-          const option = document.createElement("option");
-          option.value = v;
-          option.textContent = v;
-          select.appendChild(option);
-        });
-      }
-    }
+  const statusEl = document.getElementById("status");
+  const resultsEl = document.getElementById("results");
 
-    function filterResults() {
-      const filters = {};
-      for (const file of datasets) {
-        const id = file.split(".")[0];
-        filters[id] = document.getElementById(id).value;
-      }
+  // normalize: if string is purely digits, strip leading zeroes by numeric conversion,
+  // otherwise keep trimmed string (handles alphanumeric IDs).
+  function normalizeClip(s) {
+    if (s === null || s === undefined) return "";
+    s = String(s).trim();
+    if (s === "") return "";
+    if (/^[0-9]+$/.test(s)) return String(Number(s));
+    return s;
+  }
 
-      let results = null;
-      for (const [file, entries] of Object.entries(data)) {
-        if (filters[file.split(".")[0]]) {
-          const filtered = entries
-            .filter(e => e.value === filters[file.split(".")[0]])
-            .map(e => e.clip);
-          results = results ? results.filter(r => filtered.includes(r)) : filtered;
-        }
-      }
-
-      const resultsDiv = document.getElementById("results");
-      if (results && results.length > 0) {
-        resultsDiv.innerHTML = `Matching video numbers:<br>${results.join("<br>")}`;
-      } else {
-        resultsDiv.textContent = "No matches found.";
-      }
-    }
-
-    function resetFilters() {
-      datasets.forEach(file => {
-        const id = file.split(".")[0];
-        document.getElementById(id).selectedIndex = 0;
+  // parse CSV via PapaParse and return Promise of rows (array of objects)
+  function parseCSV(file) {
+    const url = file + "?t=" + Date.now(); // cache bust
+    return new Promise((resolve, reject) => {
+      Papa.parse(url, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: (res) => resolve(res.data),
+        error: (err) => reject(err)
       });
-      document.getElementById("results").textContent = "";
+    });
+  }
+
+  // load and process all CSVs
+  async function loadAllData() {
+    statusEl.textContent = "Loading data...";
+    resultsEl.textContent = "";
+    try {
+      const [moviesRows, peopleRows, placesRows, eventsRows, datesRows] = await Promise.all([
+        parseCSV(CONFIG.movies.file),
+        parseCSV(CONFIG.people.file),
+        parseCSV(CONFIG.places.file),
+        parseCSV(CONFIG.events.file),
+        parseCSV(CONFIG.dates.file)
+      ]);
+
+      // movies
+      moviesMap = {};
+      moviesAll = [];
+      for (const r of moviesRows) {
+        const orig = (r[CONFIG.movies.key] || "").trim();
+        const filename = (r[CONFIG.movies.value] || "").trim();
+        if (!orig) continue;
+        const norm = normalizeClip(orig);
+        // prefer first occurrence as canonical original
+        if (!(norm in moviesMap)) moviesMap[norm] = orig;
+        if (!moviesAll.includes(norm)) moviesAll.push(norm);
+      }
+
+      // helper to build table entries (normalized clip -> value)
+      function buildTable(rows, conf) {
+        const arr = [];
+        for (const r of rows) {
+          const clipRaw = (r[conf.key] || "").trim();
+          const val = (r[conf.value] || "").trim();
+          if (!clipRaw || !val) continue;
+          const norm = normalizeClip(clipRaw);
+          arr.push({ clip: norm, value: val });
+        }
+        return arr;
+      }
+
+      tables.people = buildTable(peopleRows, CONFIG.people);
+      tables.places = buildTable(placesRows, CONFIG.places);
+      tables.events = buildTable(eventsRows, CONFIG.events);
+      tables.dates  = buildTable(datesRows, CONFIG.dates);
+
+      populateAllDropdowns();
+      statusEl.textContent = "Data loaded.";
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = "Failed to load CSVs — check filenames and repo. See console for details.";
+    }
+  }
+
+  // populate dropdown options
+  function populateAllDropdowns() {
+    populateDropdown("people", tables.people.map(e => e.value));
+    populateDropdown("places", tables.places.map(e => e.value));
+    populateDropdown("events", tables.events.map(e => e.value));
+    populateDropdown("dates",  tables.dates.map(e => e.value));
+  }
+
+  function populateDropdown(id, values) {
+    const select = document.getElementById(id);
+    // clear but keep the first --Any-- option
+    select.innerHTML = "<option value=''>--Any--</option>";
+    const uniq = [...new Set(values.filter(v => v && v.trim() !== ""))].sort((a,b) => a.localeCompare(b));
+    uniq.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
+    });
+  }
+
+  // Search logic: for each selected filter, build set of clip ids, intersect with movies
+  function runSearch() {
+    resultsEl.textContent = "";
+    const selPerson = document.getElementById("people").value;
+    const selPlace  = document.getElementById("places").value;
+    const selEvent  = document.getElementById("events").value;
+    const selDate   = document.getElementById("dates").value;
+
+    // start with all movies
+    let resultSet = new Set(moviesAll);
+
+    function applyFilter(tableEntries, selectedValue) {
+      if (!selectedValue) return; // no filter
+      const matching = new Set(tableEntries.filter(e => e.value === selectedValue).map(e => e.clip));
+      // intersect resultSet with matching
+      resultSet = new Set([...resultSet].filter(x => matching.has(x)));
     }
 
-    loadCSVs();
+    applyFilter(tables.people, selPerson);
+    applyFilter(tables.places, selPlace);
+    applyFilter(tables.events, selEvent);
+    applyFilter(tables.dates, selDate);
+
+    const results = [...resultSet].sort((a,b) => {
+      // numeric sort when possible
+      const na = /^[0-9]+$/.test(a) ? Number(a) : a;
+      const nb = /^[0-9]+$/.test(b) ? Number(b) : b;
+      if (na < nb) return -1;
+      if (na > nb) return 1;
+      return 0;
+    });
+
+    if (results.length === 0) {
+      resultsEl.textContent = "No matches found.";
+      return;
+    }
+
+    // display original formatted clip numbers (preserve leading zeros from Movies.csv if present)
+    const list = results.map(norm => {
+      const orig = moviesMap[norm] || norm;
+      return `<li>${escapeHtml(orig)}</li>`;
+    }).join("");
+    resultsEl.innerHTML = "<div><strong>Clips matching your selection:</strong></div><ul class='results-list'>" + list + "</ul>";
+  }
+
+  // Reset filters
+  function resetFilters() {
+    ["people","places","events","dates"].forEach(id => {
+      const sel = document.getElementById(id);
+      sel.selectedIndex = 0;
+    });
+    resultsEl.textContent = "";
+  }
+
+  // reload data (manual)
+  function reloadData() {
+    statusEl.textContent = "Reloading CSVs...";
+    loadAllData();
+  }
+
+  // small helper to escape HTML (just in case)
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
+  }
+
+  // button wiring
+  document.getElementById("searchBtn").addEventListener("click", runSearch);
+  document.getElementById("resetBtn").addEventListener("click", resetFilters);
+  document.getElementById("reloadBtn").addEventListener("click", reloadData);
+
+  // load on page load
+  loadAllData();
   </script>
 </body>
 </html>
