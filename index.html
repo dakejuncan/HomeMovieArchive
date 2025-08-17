@@ -81,13 +81,12 @@ function search(){
   // Intersect sets if multiple filters selected
   let result = clipSets.length ? [...clipSets.reduce((a,b)=>new Set([...a].filter(x=>b.has(x))))] : movies.map(x=>normalize(x["Clip Number"]));
 
-  // Show filenames along with original Clip Numbers
-  const output = result.map(cn => {
-    const movie = movies.find(m => normalize(m["Clip Number"]) === cn);
-    return movie ? `${movie["Clip Number"]} → ${movie.Filename}` : cn;
-  });
+  // Only show Clip Numbers
+  const output = result.sort().join("<br>");
 
-  document.getElementById("results").innerHTML = output.length ? output.join("<br>") : "No matching clips found.";
+  document.getElementById("results").innerHTML = output.length 
+    ? "Videos that match your search:<br>" + output 
+    : "No matching clips found.";
 }
 </script>
 </body>
