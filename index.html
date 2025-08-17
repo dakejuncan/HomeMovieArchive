@@ -1,93 +1,123 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Home Movie Archive</title>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  select, button { margin: 5px 0; padding: 5px; }
-  #results { margin-top: 20px; }
-</style>
+  <meta charset="UTF-8">
+  <title>Home Movie Archive</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    select, button {
+      margin: 5px;
+      padding: 5px;
+    }
+    #results {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    ul {
+      margin-top: 5px;
+    }
+  </style>
 </head>
 <body>
-<h2>Home Movie Archive</h2>
-<!-- rebuild trigger -->
-<label>People:</label>
-<select id="people"><option value="">--Any--</option></select><br>
+  <h2>Home Movie Archive</h2>
+  <p>Select filters to find matching clips:</p>
 
-<label>Place:</label>
-<select id="place"><option value="">--Any--</option></select><br>
+  <label for="people">Person:</label>
+  <select id="people"><option value="">--Any--</option></select>
 
-<label>Event:</label>
-<select id="event"><option value="">--Any--</option></select><br>
+  <label for="places">Place:</label>
+  <select id="places"><option value="">--Any--</option></select>
 
-<label>Date:</label>
-<select id="date"><option value="">--Any--</option></select><br>
+  <label for="events">Event:</label>
+  <select id="events"><option value="">--Any--</option></select>
 
-<button onclick="search()">Search</button>
+  <label for="dates">Date:</label>
+  <select id="dates"><option value="">--Any--</option></select>
 
-<div id="results"></div>
+  <div>
+    <button onclick="search()">Search</button>
+  </div>
 
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-<script>
-let movies=[], people=[], places=[], events=[], dates=[];
+  <div id="results"></div>
 
-// Load CSVs
-function loadCSV(filename, callback) {
-  Papa.parse(filename, {download: true, header: true, complete: callback});
-}
+  <script>
+    let movies = {};
+    let people = [];
+    let places = [];
+    let events = [];
+    let dates = [];
 
-// Populate dropdowns
-function populateDropdown(selectId, data, column) {
-  const select = document.getElementById(selectId);
-  const values = Array.from(new Set(data.map(x => x[column]))).sort();
-  values.forEach(v => {
-    if(v) {
-      const opt = document.createElement("option");
-      opt.value = v; opt.textContent = v;
-      select.appendChild(opt);
+    async function loadCSV(url) {
+      // Force fresh copy from GitHub (skip cache)
+      const response = await fetch(url + "?t=" + new Date().getTime());
+      const text = await response.text();
+      return text.trim().split("\n").slice(1).map(line => line.split(","));
     }
-  });
-}
 
-// Load all data sequentially
-loadCSV("Movies.csv", r => { movies = r.data;
-  loadCSV("People.csv", r2 => { people = r2.data; populateDropdown("people", people, "Name");
-    loadCSV("Places.csv", r3 => { places = r3.data; populateDropdown("place", places, "Place");
-      loadCSV("Events.csv", r4 => { events = r4.data; populateDropdown("event", events, "Event");
-        loadCSV("Dates.csv", r5 => { dates = r5.data; populateDropdown("date", dates, "Date"); });
+    async function loadData() {
+      const moviesData = await loadCSV("Movies.csv");
+      movies = {};
+      moviesData.forEach(row => {
+        movies[row[0]] = row[1];
       });
-    });
-  });
-});
 
-// Normalize clip numbers for comparison (strip leading zeroes)
-const normalize = cn => cn ? String(Number(cn)) : "";
+      people = await loadCSV("People.csv");
+      places = await loadCSV("Places.csv");
+      events = await loadCSV("Events.csv");
+      dates = await loadCSV("Dates.csv");
 
-function search(){
-  const p = document.getElementById("people").value;
-  const pl = document.getElementById("place").value;
-  const e = document.getElementById("event").value;
-  const d = document.getElementById("date").value;
+      populateDropdown("people", people.map(r => r[1]));
+      populateDropdown("places", places.map(r => r[1]));
+      populateDropdown("events", events.map(r => r[1]));
+      populateDropdown("dates", dates.map(r => r[1]));
+    }
 
-  let clipSets = [];
+    function populateDropdown(id, values) {
+      const unique = [...new Set(values)];
+      const select = document.getElementById(id);
+      select.innerHTML = "<option value=''>--Any--</option>";
+      unique.forEach(v => {
+        const option = document.createElement("option");
+        option.value = v;
+        option.textContent = v;
+        select.appendChild(option);
+      });
+    }
 
-  // Collect all matching Clip Numbers for each filter
-  if(p) clipSets.push(new Set(people.filter(x=>x.Name===p).map(x=>normalize(x["Clip Number"]))));
-  if(pl) clipSets.push(new Set(places.filter(x=>x.Place===pl).map(x=>normalize(x["Clip Number"]))));
-  if(e) clipSets.push(new Set(events.filter(x=>x.Event===e).map(x=>normalize(x["Clip Number"]))));
-  if(d) clipSets.push(new Set(dates.filter(x=>x.Date===d).map(x=>normalize(x["Clip Number"]))));
+    function search() {
+      const selectedPerson = document.getElementById("people").value;
+      const selectedPlace = document.getElementById("places").value;
+      const selectedEvent = document.getElementById("events").value;
+      const selectedDate = document.getElementById("dates").value;
 
-  // Intersect sets if multiple filters selected
-  let result = clipSets.length ? [...clipSets.reduce((a,b)=>new Set([...a].filter(x=>b.has(x))))] : movies.map(x=>normalize(x["Clip Number"]));
+      let results = Object.keys(movies);
 
-  // Only show Clip Numbers
-  const output = result.sort().join("<br>");
+      if (selectedPerson) {
+        results = results.filter(r => people.some(p => p[0] === r && p[1] === selectedPerson));
+      }
+      if (selectedPlace) {
+        results = results.filter(r => places.some(p => p[0] === r && p[1] === selectedPlace));
+      }
+      if (selectedEvent) {
+        results = results.filter(r => events.some(p => p[0] === r && p[1] === selectedEvent));
+      }
+      if (selectedDate) {
+        results = results.filter(r => dates.some(p => p[0] === r && p[1] === selectedDate));
+      }
 
-  document.getElementById("results").innerHTML = output.length 
-    ? "Videos that match your search:<br>" + output 
-    : "No matching clips found.";
-}
-</script>
+      const resultsDiv = document.getElementById("results");
+      if (results.length > 0) {
+        resultsDiv.innerHTML = "Clips matching your selection:<ul>" + results.map(r => `<li>${r}</li>`).join("") + "</ul>";
+      } else {
+        resultsDiv.textContent = "No clips found for that selection.";
+      }
+    }
+
+    // Always load fresh data on page load
+    loadData();
+  </script>
 </body>
 </html>
