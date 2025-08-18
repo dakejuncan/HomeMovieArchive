@@ -85,7 +85,7 @@ Clip Number,Place
 01101,"Stillwater, OK"
 01102,"Yonkipin Lake, OK"
 01301,"Springfield, MO"
-10302,"Yonkipin Lake, OK"
+01302,"Yonkipin Lake, OK"
 01303,Oklahoma City
 01304,"McKinney, TX"
 01305,"Houma, LA"
@@ -107,4 +107,19 @@ Clip Number,Place
 01601,"Stillwater, OK"
 01602,"Stillwater, OK"
 01602,Oklahoma City
-01302,
+02601,"McKinney, TX"
+02701,"Springfield, MO"
+02801,"Houma, LA"
+02801,"Maurice, LA"
+02901,"Greenleaf State Park, OK"
+03001,"Stillwater, OK"
+03002,"Stillwater, OK"
+03101,"Houma, LA"
+03201,"Reno, NV"
+03301,"McKinney, TX"
+03401,Oklahoma City
+03402,"Loveland, CO"
+03403,"Tulsa, OK"
+03404,Oklahoma City
+03404,"Stillwater, OK"
+03405,Oklahoma City
